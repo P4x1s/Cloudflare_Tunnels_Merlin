@@ -13,9 +13,9 @@ set -u
 
 BASE=/koolshare
 CONFIG="$BASE/configs/cloudflaretunnel.conf"
-CLOUDFLARED=/opt/bin/cloudflared
+CLOUDFLARED=$BASE/bin/cloudflared
 PID=/var/run/cloudflaretunnel.pid
-LOG=/opt/var/log/cloudflared.log
+LOG=$BASE/logs/cloudflared.log
 
 NAME=cloudflaretunnel
 VERSION=1.0.0
@@ -51,7 +51,7 @@ is_running() {
 start() {
     load_config
     [ "$ENABLE" = "1" ] || { log "Plugin disabled (ENABLE=0)."; return 0; }
-    [ -x "$CLOUDFLARED" ] || { log "ERROR: cloudflared not installed (/opt/bin/cloudflared)."; return 1; }
+    [ -x "$CLOUDFLARED" ] || { log "ERROR: cloudflared not installed (内置二进制 /koolshare/bin/cloudflared)."; return 1; }
     is_running && { log "Already running (PID $(cat "$PID"))."; return 0; }
 
     mkdir -p "$(dirname "$LOG")"
