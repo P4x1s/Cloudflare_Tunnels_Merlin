@@ -41,7 +41,7 @@ cloudflare-tunnel/
 
 > **安全说明（v1.1.1+）**：Token 通过 `--token-file` 从凭证文件读取，**不会出现在进程命令行**（避免被 `ps` 窃取）；配置文件回显已做转义，保存优先走 POST，命令请求带 CSRF 缓解头。需 cloudflared ≥ 2025.4.0（内置 2026.11.1 已满足）。
 
-> **稳定性说明（v1.2.0）**：新增看门狗（cron 每 2 分钟执行 `check`），进程退出或隧道持续不健康时自动重启（带 5 分钟冷却，避免重启风暴）；`is_running` 校验进程名防 PID 复用误判；开机等待时间/网络就绪后再启动。
+> **稳定性说明（v1.2.1）**：新增看门狗（cron 每 2 分钟执行 `check`），进程退出或隧道持续不健康时自动重启（带 5 分钟冷却，避免重启风暴）；`is_running` 校验进程名防 PID 复用误判；开机等待时间/网络就绪后再启动。日志在 `start` 与每次 `check` 都轮转，长期健康不重启也会被限制在 2MB（可配）以内。
 
 > 本插件 **不写入 `/opt`**，也不调用 `opkg`，不依赖任何 Entware 组件。**v1.2.0 起仅支持远程 Token 模式**（原 local 模式未实现，已移除）。
 
@@ -108,7 +108,7 @@ chmod +x install.sh scripts/cloudflaretunnel.sh init.d/S99cloudflaretunnel.sh bi
 ```
 
 - `health`：输出隧道连通性（HEALTHY / CONNECTING / ERROR / UNKNOWN / DOWN）。
-- `check`：执行一次看门狗检查（供 cron 调用；进程异常或隧道持续不健康时自动重启，带冷却）。
+- `check`：执行一次看门狗检查（供 cron 调用；进程异常或隧道持续不健康时自动重启，带冷却；同时执行日志轮转）。
 - `status`：含 `TUNNEL=`、`VERSION=` 字段，便于脚本化监控。
 
 ---
@@ -135,13 +135,14 @@ chmod +x install.sh scripts/cloudflaretunnel.sh init.d/S99cloudflaretunnel.sh bi
 - 自动重启过于频繁：调大 `RESTART_COOLDOWN_SEC`，或检查是否 Token 失效导致隧道反复 `ERROR`。
 - 看门狗未生效：确认 cron 中存在带 `# cloudflaretunnel-watchdog` 标记的任务（`crontab -l`），且 cron 守护进程在运行；部分固件 cron 路径不同需调整 `CRON_FILE`。
 - 二进制无法执行：`ls -l /koolshare/bin/cloudflared`，确认权限为 755；`file` 确认是 32 位 ARM（若你的机器实际为 arm64，需换 arm64 二进制）。
-- 空间不足：内置二进制约 37MB，日志已限制轮转（默认 2MB）；若 JFFS 仍不够，需清理或其他方案。
+- 空间不足：内置二进制约 37MB，日志已限制轮转（默认 2MB，启动与看门狗自检都会检查）；若 JFFS 仍不够，需清理或其他方案。
 - Web 页按钮无反应：不同 ASUSGO 固件的 cgi 接口可能不同，asp 已对 `dbus_set.cgi` 做 POST→GET 回退；如仍失败按实际固件调整 ajax URL。
 
 ---
 
 ## 八、版本记录
 
+- **v1.2.1**：修复日志轮转盲点——`check()` 每次自检也轮转日志，覆盖隧道长期健康不重启的场景；版本统一为 1.2.1。
 - **v1.2.0**：看门狗自愈、进程身份校验、隧道健康检测、日志轮转、时间/网络就绪等待、配置保存后可选立即生效、状态页连通性展示；移除未实现的 local 模式。
 - **v1.1.1**：Token 凭证文件化、XSS/CSRF 加固、凭证脱敏。
 - **v1.1.0**：首发，内置二进制、远程 Token 隧道。
