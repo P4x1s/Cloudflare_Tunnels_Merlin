@@ -1,6 +1,6 @@
 #!/bin/sh
 # softcenter init.d startup hook for cloudflaretunnel
-# Called by /koolshare/init.d/ during boot. Wait for Entware (/opt) then start.
+# Self-contained: no Entware / /opt dependency. Just wait for network then start.
 
 sleep 15
 [ -x /koolshare/scripts/cloudflaretunnel.sh ] || exit 0
