@@ -27,6 +27,10 @@ BIN="$BASE/bin/cloudflared"
 BINLINK="$BASE/bin/cloudflaretunnel"
 LOG="$BASE/logs/cloudflared.log"
 PID=/var/run/cloudflaretunnel.pid
+CRON_FILE=/var/spool/cron/crontabs/root
+CRON_TAG="# cloudflaretunnel-watchdog"
+HEALTH_STATE_FILE=/tmp/cloudflaretunnel.health
+RESTART_STAMP=/tmp/cloudflaretunnel.lastrestart
 
 log() { echo "[cloudflaretunnel] $*"; logger -t cloudflaretunnel "$*" 2>/dev/null; }
 
@@ -41,6 +45,15 @@ uninstall() {
     log "Uninstalling cloudflaretunnel ..."
 
     [ -f "$SCRIPT" ] && "$SCRIPT" stop 2>/dev/null
+
+    # 移除看门狗 cron 条目（按标记过滤，不影响其他计划任务）
+    if [ -f "$CRON_FILE" ]; then
+        _tmp="$CRON_FILE.ct.$$"
+        grep -v "$CRON_TAG" "$CRON_FILE" > "$_tmp" 2>/dev/null && cat "$_tmp" > "$CRON_FILE" 2>/dev/null
+        rm -f "$_tmp"
+        killall -HUP cron 2>/dev/null || killall -HUP crond 2>/dev/null || true
+    fi
+    rm -f "$HEALTH_STATE_FILE" "$RESTART_STAMP"
 
     # 只删除本插件文件（含 root-only 凭证文件，防止 Token 残留）
     rm -f "$SCRIPT" "$WEB" "$INITD" "$CONFIG" "$TOKEN_FILE" "$BIN" "$BINLINK" "$PID" "$LOG"
