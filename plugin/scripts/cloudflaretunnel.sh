@@ -7,6 +7,12 @@
 #   cloudflaretunnel.sh {start|stop|restart|status|config|log|version}
 #
 # Config is read from dbus first (written by Web UI), then from the conf file.
+#
+# SECURITY: the tunnel Token is never passed on the command line (would be
+# visible in `ps`). It is written to a root-only token file and cloudflared is
+# started with --token-file (requires cloudflared >= 2025.4.0; bundled 2026.11.1
+# supports it). Args are built as a positional list to avoid word-splitting /
+# parameter injection from the free-form EXTRA field.
 # =============================================================================
 
 set -u
@@ -14,11 +20,12 @@ set -u
 BASE=/koolshare
 CONFIG="$BASE/configs/cloudflaretunnel.conf"
 CLOUDFLARED=$BASE/bin/cloudflared
+TOKEN_FILE="$BASE/configs/cloudflaretunnel.token"
 PID=/var/run/cloudflaretunnel.pid
 LOG=$BASE/logs/cloudflared.log
 
 NAME=cloudflaretunnel
-VERSION=1.0.0
+VERSION=1.1.1
 
 dbus_get() { dbus get "$1" 2>/dev/null; }
 
@@ -48,28 +55,44 @@ is_running() {
     return 0
 }
 
+# 将 Token 写入仅 root 可读的凭证文件；不回显、不进入进程命令行。
+write_token_file() {
+    umask 077
+    printf '%s' "$TOKEN" > "$TOKEN_FILE"
+    chmod 600 "$TOKEN_FILE" 2>/dev/null
+}
+
 start() {
     load_config
     [ "$ENABLE" = "1" ] || { log "Plugin disabled (ENABLE=0)."; return 0; }
-    [ -x "$CLOUDFLARED" ] || { log "ERROR: cloudflared not installed (内置二进制 /koolshare/bin/cloudflared)."; return 1; }
+    [ -x "$CLOUDFLARED" ] || { log "ERROR: cloudflared not installed (bundled /koolshare/bin/cloudflared)."; return 1; }
     is_running && { log "Already running (PID $(cat "$PID"))."; return 0; }
 
-    mkdir -p "$(dirname "$LOG")"
+    mkdir -p "$(dirname "$LOG")" "$(dirname "$TOKEN_FILE")"
 
+    # 用位置参数构建完整命令，避免 $ARGS 无引号展开造成的分词/注入问题
+    set -- tunnel --loglevel "$LOGLEVEL" --no-autoupdate
     case "$MODE" in
         remote)
             [ -n "$TOKEN" ] || { log "ERROR: Token is empty. Set it in Web UI."; return 1; }
-            ARGS="tunnel --loglevel $LOGLEVEL run --token $TOKEN $EXTRA"
+            write_token_file || { log "ERROR: cannot write token file."; return 1; }
+            set -- "$@" run --token-file "$TOKEN_FILE"
             ;;
         local)
             [ -n "$TUNNEL_NAME" ] || { log "ERROR: Tunnel name is empty (local mode)."; return 1; }
-            ARGS="tunnel --loglevel $LOGLEVEL run $TUNNEL_NAME $EXTRA"
+            set -- "$@" run "$TUNNEL_NAME"
             ;;
         *) log "ERROR: Unknown MODE=$MODE"; return 1 ;;
     esac
 
-    # shellcheck disable=SC2086
-    nohup "$CLOUDFLARED" $ARGS >> "$LOG" 2>&1 &
+    # EXTRA 为用户可控的附加参数：按空白安全拆分后逐个追加，不做 glob 展开
+    if [ -n "$EXTRA" ]; then
+        set -f
+        for _x in $EXTRA; do set -- "$@" "$_x"; done
+        set +f
+    fi
+
+    nohup "$CLOUDFLARED" "$@" >> "$LOG" 2>&1 &
     echo $! > "$PID"
     sleep 2
     if is_running; then
@@ -94,6 +117,8 @@ stop() {
     else
         log "Not running."
     fi
+    # Token 落入凭证文件后随服务生命周期清理
+    rm -f "$TOKEN_FILE"
 }
 
 status() {
@@ -117,6 +142,6 @@ case "${1:-}" in
     status)   status ;;
     log)      n=${2:-50}; tail -n "$n" "$LOG" 2>/dev/null || log "No log." ;;
     version)  echo "$NAME $VERSION" ;;
-    config)   echo "CONFIG=$CONFIG"; echo "LOG=$LOG"; echo "PID=$PID" ;;
+    config)   echo "CONFIG=$CONFIG"; echo "LOG=$LOG"; echo "PID=$PID"; echo "TOKEN_FILE=$TOKEN_FILE" ;;
     *)        echo "Usage: $0 {start|stop|restart|status|log [n]|config|version}"; exit 1 ;;
 esac
