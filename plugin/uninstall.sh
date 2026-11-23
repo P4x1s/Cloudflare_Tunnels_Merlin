@@ -12,6 +12,7 @@ else
           /koolshare/webs/Module_cloudflaretunnel.asp \
           /koolshare/init.d/S99cloudflaretunnel.sh \
           /koolshare/configs/cloudflaretunnel.conf \
+          /koolshare/configs/cloudflaretunnel.token \
           /koolshare/bin/cloudflaretunnel \
           /var/run/cloudflaretunnel.pid
     dbus remove softcenter_module_cloudflaretunnel 2>/dev/null
