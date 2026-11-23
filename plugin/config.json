@@ -3,8 +3,8 @@
     "module": "cloudflaretunnel",
     "name": "Cloudflare Tunnel",
     "display_name": "Cloudflare Tunnel",
-    "version": "1.1.0",
-    "author": "demo",
+    "version": "1.1.1",
+    "author": "P4x1s",
     "homepage": "https://www.koolcenter.com",
     "category": 2,
     "category_name": "穿透",
@@ -23,6 +23,7 @@
         { "key": "cloudflaretunnel_extra",    "default": "",      "desc": "附加启动参数" }
     ],
     "changelog": [
+        { "version": "1.1.1", "desc": "安全加固：Token 改用 --token-file，不再出现在进程命令行；Web 配置回显转义防 XSS、保存改 POST、命令请求加 CSRF 缓解头；修复后凭证文件随卸载/停止清理。" },
         { "version": "1.1.0", "desc": "内置 cloudflared armv7l 二进制，完全脱离 Entware 独立运行；Token 远程隧道、启停、状态、日志、Web 管理页。" }
     ]
 }
