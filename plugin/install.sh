@@ -38,6 +38,12 @@ set_db() {
     [ -n "$1" ] && [ -n "$2" ] && dbus set "$1" "$2" 2>/dev/null
 }
 
+# 仅在键不存在时写默认值：覆盖安装/升级不能清空用户已保存的 Token 与开关。
+set_db_default() {
+    _v=$(dbus get "$1" 2>/dev/null)
+    [ -z "$_v" ] && set_db "$1" "$2"
+}
+
 # ---------------------------------------------------------------------------
 # 卸载
 # ---------------------------------------------------------------------------
@@ -121,13 +127,15 @@ EOF
         chmod 600 "$CONFIG"
     fi
 
-    # dbus 默认值
-    set_db cloudflaretunnel_enable   0
-    set_db cloudflaretunnel_mode     remote
-    set_db cloudflaretunnel_token    ""
-    set_db cloudflaretunnel_name     ""
-    set_db cloudflaretunnel_loglevel info
-    set_db cloudflaretunnel_extra    ""
+    # dbus 默认值：仅在键不存在时写入，避免升级/覆盖安装清空用户配置。
+    # 旧 local 模式迁移为 remote（v1.2.0 起仅支持该模式）。
+    _m=$(dbus get cloudflaretunnel_mode 2>/dev/null)
+    [ "$_m" = "remote" ] || set_db cloudflaretunnel_mode remote
+    set_db_default cloudflaretunnel_enable   0
+    set_db_default cloudflaretunnel_token    ""
+    set_db_default cloudflaretunnel_name     ""
+    set_db_default cloudflaretunnel_loglevel info
+    set_db_default cloudflaretunnel_extra    ""
     set_db softcenter_module_cloudflaretunnel "1"
 
     log "Install done. No Entware needed. Enable and set token in the Web UI."
