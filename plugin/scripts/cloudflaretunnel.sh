@@ -14,7 +14,7 @@
 # supports it). Args are built as a positional list to avoid word-splitting /
 # parameter injection from the free-form EXTRA field.
 #
-# STABILITY (v1.2.1):
+# STABILITY (v1.2.2):
 #   - is_running() verifies the process identity via /proc/<pid>/comm to avoid
 #     PID-reuse false positives.
 #   - health() inspects the recent log for an authenticated CONNECT + active
@@ -36,7 +36,7 @@ PID=/var/run/cloudflaretunnel.pid
 LOG=$BASE/logs/cloudflared.log
 
 NAME=cloudflaretunnel
-VERSION=1.2.1
+VERSION=1.2.2
 
 # 稳定性参数（可通过 conf 覆盖）
 LOG_MAX_KB=${LOG_MAX_KB:-2048}
