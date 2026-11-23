@@ -6,10 +6,10 @@ Cloudflare Tunnel 内网穿透插件，面向 NETGEAR RAX50（Asuswrt-Merlin 386
 
 ## 仓库结构
 
+源码与本仓库；**可直接安装的插件包在 [Releases](https://github.com/P4x1s/Cloudflare_Tunnels_Merlin/releases) 页面下载**。
+
 ```
 .
-├── dist/
-│   └── cloudflaretunnel.tar.gz          # 软件中心可直接安装的插件包（含内置二进制）
 └── plugin/                               # 插件源码
     ├── config.json                       # 插件元数据
     ├── install.sh                        # 安装/卸载入口
@@ -27,7 +27,7 @@ Cloudflare Tunnel 内网穿透插件，面向 NETGEAR RAX50（Asuswrt-Merlin 386
 
 ## 快速安装
 
-1. 下载 [dist/cloudflaretunnel.tar.gz](dist/cloudflaretunnel.tar.gz)（约 17.5MB）。
+1. 从 [Releases 页面](https://github.com/P4x1s/Cloudflare_Tunnels_Merlin/releases) 下载最新版 `cloudflaretunnel.tar.gz`（约 17.5MB）。
 2. 路由器 Web 管理页 → 软件中心 → 本地安装 → 选择该包。
 3. 安装后在「Cloudflare Tunnel」页面启用插件、粘贴 Zero Trust 的隧道 Token、启动。
 4. Cloudflare 面板将隧道状态显示为 HEALTHY 即成功。
