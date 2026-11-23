@@ -3,6 +3,12 @@
  ASUSGO / koolshare softcenter Web module
  Module: cloudflaretunnel (Cloudflare Tunnel)
  Path on router: /koolshare/webs/Module_cloudflaretunnel.asp
+
+ SECURITY NOTES:
+  - All dbus-sourced values are JS-escaped before being embedded in scripts
+    (prevents stored XSS from malicious token/name/extra values).
+  - Config save uses POST (token no longer travels in the URL query string).
+  - State-changing AJAX calls send X-Requested-With to mitigate CSRF.
 =============================================================================
 -->
 <%
@@ -13,7 +19,7 @@ var dbus = {};
 %>
 <#include "/koolshare/webs/Module_dianxin.asp">
 <%
-/* 读取 dbus 中本插件配置项 */
+/* 读取 dbus 中本插件配置项（保留兼容函数，输出同样经过转义约定） */
 function getCfg(key, def){
     var v = '<% dbus get cloudflaretunnel_' + key + ' %>';
     return (v && v !== "cloudflaretunnel_" + key) ? v : def;
@@ -91,14 +97,26 @@ function getCfg(key, def){
 
     function $(id){ return document.getElementById(id); }
 
-    // 初始化表单值（由后端 dbus 注入）
+    // 将服务端注入的字符串转义为可安全放入 JS 单引号字面量的形式。
+    // 处理顺序：先反斜杠，再单引号与尖括号（防止 </script> 提前闭合）。
+    function esc(s){
+        return String(s == null ? '' : s)
+            .replace(/\\/g, '\\\\')
+            .replace(/'/g, "\\'")
+            .replace(/</g, '\\x3c')
+            .replace(/>/g, '\\x3e')
+            .replace(/\r/g, '')
+            .replace(/\n/g, '\\n');
+    }
+
+    // 初始化表单值（由后端 dbus 注入，统一经 esc() 转义，杜绝 JS 注入）
     function initForm(){
         $('ct_enable').checked   = ('<%= dbus get cloudflaretunnel_enable %>' === '1');
-        $('ct_mode').value       = '<%= dbus get cloudflaretunnel_mode %>' || 'remote';
-        $('ct_token').value      = '<%= dbus get cloudflaretunnel_token %>' || '';
-        $('ct_name').value       = '<%= dbus get cloudflaretunnel_name %>' || '';
-        $('ct_loglevel').value   = '<%= dbus get cloudflaretunnel_loglevel %>' || 'info';
-        $('ct_extra').value      = '<%= dbus get cloudflaretunnel_extra %>' || '';
+        $('ct_mode').value       = esc('<%= dbus get cloudflaretunnel_mode %>') || 'remote';
+        $('ct_token').value      = esc('<%= dbus get cloudflaretunnel_token %>') || '';
+        $('ct_name').value       = esc('<%= dbus get cloudflaretunnel_name %>') || '';
+        $('ct_loglevel').value   = esc('<%= dbus get cloudflaretunnel_loglevel %>') || 'info';
+        $('ct_extra').value      = esc('<%= dbus get cloudflaretunnel_extra %>') || '';
         toggleModeRows();
     }
 
@@ -108,7 +126,8 @@ function getCfg(key, def){
         $('ct_name_row').style.display  = remote ? 'none' : '';
     }
 
-    // 通过 softcenter 的 dbus ajax 接口保存配置
+    // 通过 softcenter 的 dbus ajax 接口保存配置。
+    // 使用 POST，避免 Token 出现在 URL / 浏览器历史 / 代理日志中。
     function saveCfg(){
         var params = {
             cloudflaretunnel_enable:    $('ct_enable').checked ? '1' : '0',
@@ -118,25 +137,33 @@ function getCfg(key, def){
             cloudflaretunnel_loglevel:  $('ct_loglevel').value,
             cloudflaretunnel_extra:     $('ct_extra').value
         };
-        var qs = [];
-        for (var k in params) qs.push(k + '=' + encodeURIComponent(params[k]));
         return $.ajax({
-            url: '/cgi-bin/dbus_set.cgi?' + qs.join('&'),
-            type: 'GET', dataType: 'text'
+            url: '/cgi-bin/dbus_set.cgi',
+            type: 'POST',
+            data: params,
+            dataType: 'text',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
         });
     }
 
+    // 命令类请求统一带 X-Requested-With，缓解跨站请求伪造（CSRF）
     function runCmd(cmd){
         return $.ajax({
-            url: '/cgi-bin/softcenter_cmd.cgi?cmd=' + encodeURIComponent(SCRIPT + ' ' + cmd),
-            type: 'GET', dataType: 'text', timeout: 15000
+            url: '/cgi-bin/softcenter_cmd.cgi',
+            type: 'GET',
+            data: { cmd: SCRIPT + ' ' + cmd },
+            dataType: 'text', timeout: 15000,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
         });
     }
 
     function refreshStatus(){
         $.ajax({
-            url: '/cgi-bin/softcenter_cmd.cgi?cmd=' + encodeURIComponent(SCRIPT + ' status'),
-            type: 'GET', dataType: 'text', timeout: 15000,
+            url: '/cgi-bin/softcenter_cmd.cgi',
+            type: 'GET',
+            data: { cmd: SCRIPT + ' status' },
+            dataType: 'text', timeout: 15000,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
             success: function(data){ $('ct_status').innerText = data; },
             error: function(){ $('ct_status').innerText = '状态获取失败'; }
         });
@@ -153,8 +180,11 @@ function getCfg(key, def){
     $('ct_logbtn').addEventListener('click',function(){
         $('ct_log').style.display = 'block';
         $.ajax({
-            url: '/cgi-bin/softcenter_cmd.cgi?cmd=' + encodeURIComponent(SCRIPT + ' log 100'),
-            type: 'GET', dataType: 'text',
+            url: '/cgi-bin/softcenter_cmd.cgi',
+            type: 'GET',
+            data: { cmd: SCRIPT + ' log 100' },
+            dataType: 'text',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
             success: function(data){ $('ct_log').innerText = data; }
         });
     });
