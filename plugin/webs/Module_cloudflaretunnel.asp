@@ -11,10 +11,14 @@
     with a GET fallback for firmwares whose cgi only accepts GET.
   - State-changing AJAX calls send X-Requested-With to mitigate CSRF.
 
+ v1.2.2 PATCH:
+  - Installer now preserves saved dbus settings (token, enable, log level,
+    extra args) on reinstall/upgrade; legacy local mode migrates to remote.
+  - Version badge now reads v1.2.2 from status.
+
  v1.2.1 PATCH:
-  - Service script now rotates the log on every watchdog check as well as on
+  - Service script rotates the log on every watchdog check as well as on
     start, so a long-lived healthy tunnel cannot grow the log without bound.
-  - Version badge now reads v1.2.1 from status.
 
  v1.2.0 CHANGES:
   - Removed the non-functional "local/config.yml" mode (only remote Token mode
