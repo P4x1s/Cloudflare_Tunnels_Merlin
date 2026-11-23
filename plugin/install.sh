@@ -2,13 +2,16 @@
 # =============================================================================
 # ASUSGO / koolshare softcenter plugin installer
 # Plugin : cloudflaretunnel (Cloudflare Tunnel)
+# SELF-CONTAINED: no Entware / opkg required. cloudflared binary is bundled.
+#
 # Installed paths (koolshare layout):
 #   /koolshare/scripts/cloudflaretunnel.sh       管理/服务脚本
 #   /koolshare/webs/Module_cloudflaretunnel.asp  Web 管理页面
 #   /koolshare/init.d/S99cloudflaretunnel.sh     开机自启
 #   /koolshare/configs/cloudflaretunnel.conf     配置文件
+#   /koolshare/bin/cloudflared                   内置静态二进制（armv7l）
 #   /koolshare/bin/cloudflaretunnel              兼容旧调用的软链接
-#   /opt/bin/cloudflared                         由 opkg 安装的隧道程序
+#   /koolshare/logs/cloudflared.log              运行日志
 # =============================================================================
 
 # 被软件中心调用时会传入 1（安装）/0（卸载）
@@ -19,14 +22,14 @@ SCRIPT="$BASE/scripts/cloudflaretunnel.sh"
 WEB="$BASE/webs/Module_cloudflaretunnel.asp"
 INITD="$BASE/init.d/S99cloudflaretunnel.sh"
 CONFIG="$BASE/configs/cloudflaretunnel.conf"
+BIN="$BASE/bin/cloudflared"
 BINLINK="$BASE/bin/cloudflaretunnel"
-LOG=/opt/var/log/cloudflared.log
+LOG="$BASE/logs/cloudflared.log"
 PID=/var/run/cloudflaretunnel.pid
 
 log() { echo "[cloudflaretunnel] $*"; logger -t cloudflaretunnel "$*" 2>/dev/null; }
 
 set_db() {
-    # koolshare dbus helper
     [ -n "$1" ] && [ -n "$2" ] && dbus set "$1" "$2" 2>/dev/null
 }
 
@@ -38,9 +41,9 @@ uninstall() {
 
     [ -f "$SCRIPT" ] && "$SCRIPT" stop 2>/dev/null
 
-    rm -f "$SCRIPT" "$WEB" "$INITD" "$CONFIG" "$BINLINK" "$PID"
+    # 只删除本插件文件（保留内置二进制由安装器覆盖管理，这里一并删除）
+    rm -f "$SCRIPT" "$WEB" "$INITD" "$CONFIG" "$BIN" "$BINLINK" "$PID" "$LOG"
 
-    # 移除软件中心菜单注册（幂等）
     dbus remove softcenter_module_cloudflaretunnel 2>/dev/null
     dbus remove cloudflaretunnel_enable 2>/dev/null
     dbus remove cloudflaretunnel_mode 2>/dev/null
@@ -49,54 +52,48 @@ uninstall() {
     dbus remove cloudflaretunnel_loglevel 2>/dev/null
     dbus remove cloudflaretunnel_extra 2>/dev/null
 
-    log "Uninstall done. cloudflared (opkg) package not removed."
+    log "Uninstall done."
 }
 
 # ---------------------------------------------------------------------------
 # 安装
 # ---------------------------------------------------------------------------
 install() {
-    log "Installing cloudflaretunnel ..."
+    log "Installing cloudflaretunnel (self-contained, no Entware) ..."
 
-    # 1. 路径存在性检查
     [ -d "$BASE/scripts" ] || { log "ERROR: /koolshare not found, not a softcenter firmware."; exit 1; }
 
-    # 2. 依赖：Entware / opkg 与 cloudflared
-    if [ ! -x /opt/bin/cloudflared ]; then
-        if command -v opkg >/dev/null 2>&1; then
-            log "Installing cloudflared via opkg ..."
-            opkg update >/dev/null 2>&1
-            opkg install cloudflared >/dev/null 2>&1 || log "WARN: opkg install cloudflared failed, install manually."
-        else
-            log "WARN: opkg not found (Entware missing). Install Entware then cloudflared."
-        fi
-    else
-        log "cloudflared already installed."
-    fi
-
-    # 3. 落盘本插件随包文件
     mkdir -p "$BASE/scripts" "$BASE/webs" "$BASE/init.d" "$BASE/configs" "$BASE/bin" "$(dirname "$LOG")"
 
-    # 假设随包文件与 install.sh 同目录
     SRC=$(cd "$(dirname "$0")" && pwd)
     copy_if_needed() {
         _s="$1"; _d="$2"
         if [ -f "$_s" ]; then
-            [ "$_s" = "$_d" ] && return 0        # 已解压到目标位置，无需复制
+            [ "$_s" = "$_d" ] && return 0
             cp "$_s" "$_d" 2>/dev/null || log "WARN: copy $_s -> $_d failed"
         else
             log "WARN: $_s missing (package may be partially extracted)"
         fi
     }
+
+    # 内置二进制（随包提供）
+    copy_if_needed "$SRC/bin/cloudflared-linux-arm" "$BIN"
+    if [ -f "$BIN" ]; then
+        chmod 755 "$BIN"
+        log "Bundled cloudflared installed: $("$BIN" --version 2>&1 | head -n 1)"
+    else
+        log "ERROR: bundled cloudflared binary missing; plugin cannot run."
+    fi
+
+    # 脚本 / Web / 自启
     copy_if_needed "$SRC/scripts/cloudflaretunnel.sh" "$SCRIPT"
     copy_if_needed "$SRC/webs/Module_cloudflaretunnel.asp" "$WEB"
     copy_if_needed "$SRC/init.d/S99cloudflaretunnel.sh" "$INITD"
     chmod 755 "$SCRIPT" "$INITD" 2>/dev/null
 
-    # 兼容旧调用：/koolshare/bin/cloudflaretunnel -> 主脚本
     [ -f "$SCRIPT" ] && ln -sf "$SCRIPT" "$BINLINK" 2>/dev/null
 
-    # 4. 默认配置
+    # 默认配置
     if [ ! -f "$CONFIG" ]; then
         cat > "$CONFIG" <<EOF
 # cloudflaretunnel runtime config
@@ -110,7 +107,7 @@ EOF
         chmod 600 "$CONFIG"
     fi
 
-    # 5. 写 dbus 默认值（软件中心依赖）
+    # dbus 默认值
     set_db cloudflaretunnel_enable   0
     set_db cloudflaretunnel_mode     remote
     set_db cloudflaretunnel_token    ""
@@ -119,7 +116,7 @@ EOF
     set_db cloudflaretunnel_extra    ""
     set_db softcenter_module_cloudflaretunnel "1"
 
-    log "Install done. Enable and set token in the Web UI."
+    log "Install done. No Entware needed. Enable and set token in the Web UI."
 }
 
 case "$ACTION" in
