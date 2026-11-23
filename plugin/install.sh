@@ -22,6 +22,7 @@ SCRIPT="$BASE/scripts/cloudflaretunnel.sh"
 WEB="$BASE/webs/Module_cloudflaretunnel.asp"
 INITD="$BASE/init.d/S99cloudflaretunnel.sh"
 CONFIG="$BASE/configs/cloudflaretunnel.conf"
+TOKEN_FILE="$BASE/configs/cloudflaretunnel.token"
 BIN="$BASE/bin/cloudflared"
 BINLINK="$BASE/bin/cloudflaretunnel"
 LOG="$BASE/logs/cloudflared.log"
@@ -41,8 +42,8 @@ uninstall() {
 
     [ -f "$SCRIPT" ] && "$SCRIPT" stop 2>/dev/null
 
-    # 只删除本插件文件（保留内置二进制由安装器覆盖管理，这里一并删除）
-    rm -f "$SCRIPT" "$WEB" "$INITD" "$CONFIG" "$BIN" "$BINLINK" "$PID" "$LOG"
+    # 只删除本插件文件（含 root-only 凭证文件，防止 Token 残留）
+    rm -f "$SCRIPT" "$WEB" "$INITD" "$CONFIG" "$TOKEN_FILE" "$BIN" "$BINLINK" "$PID" "$LOG"
 
     dbus remove softcenter_module_cloudflaretunnel 2>/dev/null
     dbus remove cloudflaretunnel_enable 2>/dev/null
