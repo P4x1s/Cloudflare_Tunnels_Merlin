@@ -3,14 +3,14 @@
     "module": "cloudflaretunnel",
     "name": "Cloudflare Tunnel",
     "display_name": "Cloudflare Tunnel",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "author": "demo",
     "homepage": "https://www.koolcenter.com",
     "category": 2,
     "category_name": "穿透",
     "description": "Cloudflare Tunnel 内网穿透插件，通过 Token 远程管理隧道将局域网服务安全暴露到公网，无需公网 IP。",
-    "depends": "2",
-    "depends_desc": "需要 Entware 环境（/opt 可用，cloudflared 由 opkg 安装）",
+    "depends": "0",
+    "depends_desc": "完全独立，内置 cloudflared 二进制（armv7l），无需 Entware / opkg",
     "web_page": "Module_cloudflaretunnel.asp",
     "service_script": "scripts/cloudflaretunnel.sh",
     "dbus_prefix": "cloudflaretunnel",
@@ -23,6 +23,6 @@
         { "key": "cloudflaretunnel_extra",    "default": "",      "desc": "附加启动参数" }
     ],
     "changelog": [
-        { "version": "1.0.0", "desc": "首个 softcenter 版本：Token 远程隧道、启停、状态、日志、Web 管理页。" }
+        { "version": "1.1.0", "desc": "内置 cloudflared armv7l 二进制，完全脱离 Entware 独立运行；Token 远程隧道、启停、状态、日志、Web 管理页。" }
     ]
 }
