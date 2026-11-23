@@ -33,8 +33,11 @@ cloudflare-tunnel/
 | `webs/Module_cloudflaretunnel.asp` | `/koolshare/webs/Module_cloudflaretunnel.asp` | Web 页面 |
 | `init.d/S99cloudflaretunnel.sh` | `/koolshare/init.d/S99cloudflaretunnel.sh` | 开机自启 |
 | — | `/koolshare/configs/cloudflaretunnel.conf` | 配置（权限 600） |
+| — | `/koolshare/configs/cloudflaretunnel.token` | 隧道 Token 凭证文件（权限 600，仅 root 可读；停止/卸载时自动清理） |
 | — | `/koolshare/logs/cloudflared.log` | 运行日志 |
 | — | `/var/run/cloudflaretunnel.pid` | PID 文件 |
+
+> **安全说明（v1.1.1）**：Token 通过 `--token-file` 从凭证文件读取，**不会出现在进程命令行**（避免被 `ps` 窃取）；配置文件回显已做转义，保存走 POST，命令请求带 CSRF 缓解头。需 cloudflared ≥ 2025.4.0（内置 2026.11.1 已满足）。
 
 > 本插件 **不写入 `/opt`**，也不调用 `opkg`，不依赖任何 Entware 组件。
 
