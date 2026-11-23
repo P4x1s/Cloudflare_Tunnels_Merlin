@@ -6,9 +6,16 @@
 
  SECURITY NOTES:
   - All dbus-sourced values are JS-escaped before being embedded in scripts
-    (prevents stored XSS from malicious token/name/extra values).
-  - Config save uses POST (token no longer travels in the URL query string).
+    (prevents stored XSS from malicious token/extra values).
+  - Config save uses POST (token no longer travels in the URL query string),
+    with a GET fallback for firmwares whose cgi only accepts GET.
   - State-changing AJAX calls send X-Requested-With to mitigate CSRF.
+
+ v1.2.0 CHANGES:
+  - Removed the non-functional "local/config.yml" mode (only remote Token mode
+    is implemented) to avoid a misleading, always-failing option.
+  - Save now offers to apply changes immediately (restart) so edits take effect.
+  - Status view renders tunnel health, version and uptime hints.
 =============================================================================
 -->
 <%
@@ -32,32 +39,26 @@ function getCfg(key, def){
     .ct-input{ width: 420px; padding:6px; }
     .ct-btn  { margin-right:8px; padding:6px 16px; cursor:pointer; }
     .ct-status{ font-family:monospace; background:#f5f5f5; padding:10px; white-space:pre-wrap; }
+    .ct-hint{ color:#888; font-size:12px; }
+    .ct-badge{ display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; margin-left:6px; }
+    .ct-ok{ background:#e6f4ea; color:#137333; }
+    .ct-warn{ background:#fef7e0; color:#b06000; }
+    .ct-bad{ background:#fce8e6; color:#c5221f; }
 </style>
 
 <div class="row">
     <div class="col-lg-12">
         <div class="ct-card">
-            <h3>Cloudflare Tunnel 设置</h3>
-            <p style="color:#888;">通过 Token 远程管理隧道，将内网服务安全暴露到公网（无需公网 IP）。</p>
+            <h3>Cloudflare Tunnel 设置 <span id="ct_ver" class="ct-hint"></span></h3>
+            <p class="ct-hint">通过 Token 远程管理隧道，将内网服务安全暴露到公网（无需公网 IP）。v1.2.0 起仅支持远程 Token 模式。</p>
 
             <div class="ct-row">
                 <span class="ct-label">插件开关：</span>
-                <input type="checkbox" id="ct_enable" /> 启用（开机自启）
-            </div>
-            <div class="ct-row">
-                <span class="ct-label">隧道模式：</span>
-                <select id="ct_mode">
-                    <option value="remote">远程管理（Token，推荐）</option>
-                    <option value="local">本地管理（config.yml）</option>
-                </select>
+                <input type="checkbox" id="ct_enable" /> 启用（开机自启 + 看门狗自愈）
             </div>
             <div class="ct-row" id="ct_token_row">
                 <span class="ct-label">隧道 Token：</span>
                 <input type="password" id="ct_token" class="ct-input" placeholder="Zero Trust → Networks → Tunnels → Configure 复制的 Token" />
-            </div>
-            <div class="ct-row" id="ct_name_row">
-                <span class="ct-label">隧道名称：</span>
-                <input type="text" id="ct_name" class="ct-input" placeholder="本地模式下的 tunnel name / UUID" />
             </div>
             <div class="ct-row">
                 <span class="ct-label">日志级别：</span>
@@ -67,6 +68,7 @@ function getCfg(key, def){
                     <option value="warn">warn</option>
                     <option value="error">error</option>
                 </select>
+                <span class="ct-hint">建议 info；debug 会产生大量日志。</span>
             </div>
             <div class="ct-row">
                 <span class="ct-label">附加参数：</span>
@@ -74,15 +76,17 @@ function getCfg(key, def){
             </div>
 
             <div class="ct-row">
-                <button class="ct-btn btn btn-primary" id="ct_save">保存</button>
+                <button class="ct-btn btn btn-primary" id="ct_save">保存并应用</button>
                 <button class="ct-btn btn btn-success" id="ct_start">启动</button>
                 <button class="ct-btn btn btn-warning" id="ct_stop">停止</button>
                 <button class="ct-btn btn btn-default" id="ct_restart">重启</button>
             </div>
+            <p class="ct-hint">保存后若插件处于启用状态，将自动重启以使配置生效；看门狗每 2 分钟自动检查，异常时自愈。</p>
         </div>
 
         <div class="ct-card">
             <h3>运行状态</h3>
+            <div class="ct-hint">隧道连通性：<span id="ct_health_badge" class="ct-badge ct-warn">检测中...</span></div>
             <div id="ct_status" class="ct-status">加载中...</div>
             <button class="ct-btn btn btn-default" id="ct_refresh">刷新状态</button>
             <button class="ct-btn btn btn-default" id="ct_logbtn">查看日志</button>
@@ -98,7 +102,6 @@ function getCfg(key, def){
     function $(id){ return document.getElementById(id); }
 
     // 将服务端注入的字符串转义为可安全放入 JS 单引号字面量的形式。
-    // 处理顺序：先反斜杠，再单引号与尖括号（防止 </script> 提前闭合）。
     function esc(s){
         return String(s == null ? '' : s)
             .replace(/\\/g, '\\\\')
@@ -109,52 +112,62 @@ function getCfg(key, def){
             .replace(/\n/g, '\\n');
     }
 
-    // 初始化表单值（由后端 dbus 注入，统一经 esc() 转义，杜绝 JS 注入）
     function initForm(){
         $('ct_enable').checked   = ('<%= dbus get cloudflaretunnel_enable %>' === '1');
-        $('ct_mode').value       = esc('<%= dbus get cloudflaretunnel_mode %>') || 'remote';
         $('ct_token').value      = esc('<%= dbus get cloudflaretunnel_token %>') || '';
-        $('ct_name').value       = esc('<%= dbus get cloudflaretunnel_name %>') || '';
         $('ct_loglevel').value   = esc('<%= dbus get cloudflaretunnel_loglevel %>') || 'info';
         $('ct_extra').value      = esc('<%= dbus get cloudflaretunnel_extra %>') || '';
-        toggleModeRows();
     }
 
-    function toggleModeRows(){
-        var remote = $('ct_mode').value === 'remote';
-        $('ct_token_row').style.display = remote ? '' : 'none';
-        $('ct_name_row').style.display  = remote ? 'none' : '';
-    }
-
-    // 通过 softcenter 的 dbus ajax 接口保存配置。
-    // 使用 POST，避免 Token 出现在 URL / 浏览器历史 / 代理日志中。
+    // POST 保存；部分固件 cgi 仅接受 GET，POST 失败时自动回退（token 仍编码在 body/query，但优先 POST）。
     function saveCfg(){
         var params = {
             cloudflaretunnel_enable:    $('ct_enable').checked ? '1' : '0',
-            cloudflaretunnel_mode:      $('ct_mode').value,
+            cloudflaretunnel_mode:      'remote',
             cloudflaretunnel_token:     $('ct_token').value,
-            cloudflaretunnel_name:      $('ct_name').value,
             cloudflaretunnel_loglevel:  $('ct_loglevel').value,
             cloudflaretunnel_extra:     $('ct_extra').value
         };
+        var qs = [];
+        for (var k in params) qs.push(k + '=' + encodeURIComponent(params[k]));
         return $.ajax({
             url: '/cgi-bin/dbus_set.cgi',
             type: 'POST',
             data: params,
             dataType: 'text',
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        }).fail(function(){
+            return $.ajax({
+                url: '/cgi-bin/dbus_set.cgi?' + qs.join('&'),
+                type: 'GET', dataType: 'text',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
         });
     }
 
-    // 命令类请求统一带 X-Requested-With，缓解跨站请求伪造（CSRF）
     function runCmd(cmd){
         return $.ajax({
             url: '/cgi-bin/softcenter_cmd.cgi',
             type: 'GET',
             data: { cmd: SCRIPT + ' ' + cmd },
-            dataType: 'text', timeout: 15000,
+            dataType: 'text', timeout: 20000,
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
         });
+    }
+
+    function parseKV(data){
+        var o = {};
+        String(data || '').split(/\r?\n/).forEach(function(line){
+            var i = line.indexOf('=');
+            if (i > 0) o[line.slice(0, i)] = line.slice(i + 1);
+        });
+        return o;
+    }
+
+    function setBadge(text, cls){
+        var b = $('ct_health_badge');
+        b.textContent = text;
+        b.className = 'ct-badge ' + cls;
     }
 
     function refreshStatus(){
@@ -164,14 +177,28 @@ function getCfg(key, def){
             data: { cmd: SCRIPT + ' status' },
             dataType: 'text', timeout: 15000,
             headers: { 'X-Requested-With': 'XMLHttpRequest' },
-            success: function(data){ $('ct_status').innerText = data; },
+            success: function(data){
+                $('ct_status').innerText = data;
+                var kv = parseKV(data);
+                if (kv.VERSION) $('ct_ver').textContent = 'v' + kv.VERSION;
+                var h = kv.TUNNEL || 'UNKNOWN';
+                if (h === 'HEALTHY')      setBadge('HEALTHY · 隧道已连通', 'ct-ok');
+                else if (h === 'RUNNING' || h === 'CONNECTING') setBadge(h + ' · 连接中', 'ct-warn');
+                else if (h === 'DOWN')    setBadge('DOWN · 未运行', 'ct-bad');
+                else                      setBadge(h + ' · 状态未知', 'ct-warn');
+            },
             error: function(){ $('ct_status').innerText = '状态获取失败'; }
         });
     }
 
-    $('ct_mode').addEventListener('change', toggleModeRows);
     $('ct_save').addEventListener('click', function(){
-        saveCfg().done(function(){ alert('保存成功'); });
+        saveCfg().done(function(){
+            var apply = $('ct_enable').checked
+                ? window.confirm('配置已保存。是否立即重启插件以应用更改？')
+                : false;
+            if (apply) runCmd('restart').always(refreshStatus);
+            else alert('保存成功' + ($('ct_enable').checked ? '（未重启，部分更改将在下次启动生效）' : ''));
+        }).fail(function(){ alert('保存失败，请检查固件 cgi 接口。'); });
     });
     $('ct_start').addEventListener('click', function(){ runCmd('start').done(refreshStatus); });
     $('ct_stop').addEventListener('click',  function(){ runCmd('stop').done(refreshStatus); });
