@@ -14,7 +14,7 @@
 # supports it). Args are built as a positional list to avoid word-splitting /
 # parameter injection from the free-form EXTRA field.
 #
-# STABILITY (v1.2.0):
+# STABILITY (v1.2.1):
 #   - is_running() verifies the process identity via /proc/<pid>/comm to avoid
 #     PID-reuse false positives.
 #   - health() inspects the recent log for an authenticated CONNECT + active
@@ -22,7 +22,8 @@
 #   - check() is an idempotent watchdog suitable for cron (every 1-2 min):
 #     restart only when the process is down or the tunnel has been unhealthy for
 #     a sustained period. Backoff prevents restart loops.
-#   - logs are rotated on start to bound JFFS usage.
+#   - logs are rotated on start AND on every watchdog check, so a long-lived
+#     healthy tunnel cannot grow the log without bound until its next restart.
 # =============================================================================
 
 set -u
@@ -35,7 +36,7 @@ PID=/var/run/cloudflaretunnel.pid
 LOG=$BASE/logs/cloudflared.log
 
 NAME=cloudflaretunnel
-VERSION=1.2.0
+VERSION=1.2.1
 
 # 稳定性参数（可通过 conf 覆盖）
 LOG_MAX_KB=${LOG_MAX_KB:-2048}
@@ -179,6 +180,10 @@ restart() { stop; start; }
 #   - 隧道持续不健康达到阈值：重启
 check() {
     load_config
+    # v1.2.1 patch: rotate on every watchdog tick, not only on start.
+    # Otherwise a tunnel that stays healthy for weeks keeps appending to the
+    # log until the next restart, defeating the JFFS size guard.
+    rotate_log
     [ "$ENABLE" = "1" ] || { echo "DISABLED"; return 0; }
 
     if ! is_running; then
