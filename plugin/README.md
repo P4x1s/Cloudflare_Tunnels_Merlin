@@ -34,12 +34,16 @@ cloudflare-tunnel/
 | `init.d/S99cloudflaretunnel.sh` | `/koolshare/init.d/S99cloudflaretunnel.sh` | 开机自启 |
 | — | `/koolshare/configs/cloudflaretunnel.conf` | 配置（权限 600） |
 | — | `/koolshare/configs/cloudflaretunnel.token` | 隧道 Token 凭证文件（权限 600，仅 root 可读；停止/卸载时自动清理） |
-| — | `/koolshare/logs/cloudflared.log` | 运行日志 |
+| — | `/koolshare/logs/cloudflared.log` | 运行日志（超过 2MB 自动轮转保留尾部） |
 | — | `/var/run/cloudflaretunnel.pid` | PID 文件 |
+| — | `/var/spool/cron/crontabs/root` | 追加一条看门狗任务（带 `# cloudflaretunnel-watchdog` 标记，卸载时清除） |
+| — | `/tmp/cloudflaretunnel.health` / `.lastrestart` | 健康计数与重启退避时间戳（卸载时清除） |
 
-> **安全说明（v1.1.1）**：Token 通过 `--token-file` 从凭证文件读取，**不会出现在进程命令行**（避免被 `ps` 窃取）；配置文件回显已做转义，保存走 POST，命令请求带 CSRF 缓解头。需 cloudflared ≥ 2025.4.0（内置 2026.11.1 已满足）。
+> **安全说明（v1.1.1+）**：Token 通过 `--token-file` 从凭证文件读取，**不会出现在进程命令行**（避免被 `ps` 窃取）；配置文件回显已做转义，保存优先走 POST，命令请求带 CSRF 缓解头。需 cloudflared ≥ 2025.4.0（内置 2026.11.1 已满足）。
 
-> 本插件 **不写入 `/opt`**，也不调用 `opkg`，不依赖任何 Entware 组件。
+> **稳定性说明（v1.2.0）**：新增看门狗（cron 每 2 分钟执行 `check`），进程退出或隧道持续不健康时自动重启（带 5 分钟冷却，避免重启风暴）；`is_running` 校验进程名防 PID 复用误判；开机等待时间/网络就绪后再启动。
+
+> 本插件 **不写入 `/opt`**，也不调用 `opkg`，不依赖任何 Entware 组件。**v1.2.0 起仅支持远程 Token 模式**（原 local 模式未实现，已移除）。
 
 ---
 
@@ -50,9 +54,10 @@ cloudflare-tunnel/
 ```
 
 1. 在 Cloudflare Zero Trust 创建 **Remotely-managed tunnel**，拿到 Token。
-2. 插件用内置二进制执行 `/koolshare/bin/cloudflared tunnel run --token <TOKEN>`，主动连到边缘建立出站隧道。
+2. 插件把 Token 写入 600 权限凭证文件，用内置二进制执行 `cloudflared tunnel --no-autoupdate run --token-file <file>`，主动连到边缘建立出站隧道（Token 不进入命令行）。
 3. 面板配置 Public Hostname（如 `nas.example.com -> http://192.168.50.10:5000`）。
 4. 软件中心 Web 页负责启停与状态；配置存于 dbus。
+5. 开机脚本等待时间/网络就绪后启动，并安装看门狗 cron；运行中每 2 分钟自检，异常自动恢复。
 
 ---
 
@@ -93,14 +98,18 @@ chmod +x install.sh scripts/cloudflaretunnel.sh init.d/S99cloudflaretunnel.sh bi
 
 初始化后，在 Web 管理页（软件中心 → Cloudflare Tunnel）中：
 
-- 打开插件开关；选“远程管理（Token）”；粘贴 Token；保存 → 启动；
-- 在“运行状态”查看，面板隧道显示 HEALTHY 即成功。
+- 打开插件开关；粘贴 Token；点“保存并应用”，确认重启即生效；
+- 在“运行状态”查看连通性徽标：`HEALTHY`（已连通）、`CONNECTING`（连接中）、`DOWN`（未运行）。
 
 ### 命令行控制
 
 ```sh
-/koolshare/scripts/cloudflaretunnel.sh start|stop|restart|status|log 100|config|version
+/koolshare/scripts/cloudflaretunnel.sh start|stop|restart|status|health|check|log 100|config|version
 ```
+
+- `health`：输出隧道连通性（HEALTHY / CONNECTING / ERROR / UNKNOWN / DOWN）。
+- `check`：执行一次看门狗检查（供 cron 调用；进程异常或隧道持续不健康时自动重启，带冷却）。
+- `status`：含 `TUNNEL=`、`VERSION=` 字段，便于脚本化监控。
 
 ---
 
@@ -111,26 +120,30 @@ chmod +x install.sh scripts/cloudflaretunnel.sh init.d/S99cloudflaretunnel.sh bi
 | dbus key | 含义 |
 |----------|------|
 | `cloudflaretunnel_enable` | 总开关/自启 0/1 |
-| `cloudflaretunnel_mode` | `remote` / `local` |
 | `cloudflaretunnel_token` | 远程隧道 Token（敏感） |
-| `cloudflaretunnel_name` | 本地模式隧道名 |
 | `cloudflaretunnel_loglevel` | 日志级别 |
 | `cloudflaretunnel_extra` | 附加参数 |
+
+可选运行参数（写入 `/koolshare/configs/cloudflaretunnel.conf` 覆盖默认值）：
+`LOG_MAX_KB`（日志轮转阈值，默认 2048）、`UNHEALTHY_RESTART_MIN`（连续不健康检查次数阈值，默认 5）、`RESTART_COOLDOWN_SEC`（自动重启冷却秒数，默认 300）。
 
 ---
 
 ## 七、排错
 
-- 面板不健康：先看 `status`，再看 `log 100`；常见原因 Token 错、时间不同步、DNS 被劫持。
+- 面板不健康：先看 `status` 的 `TUNNEL=` 字段，再看 `health` 与 `log 100`；常见原因 Token 错、时间不同步、DNS 被劫持。
+- 自动重启过于频繁：调大 `RESTART_COOLDOWN_SEC`，或检查是否 Token 失效导致隧道反复 `ERROR`。
+- 看门狗未生效：确认 cron 中存在带 `# cloudflaretunnel-watchdog` 标记的任务（`crontab -l`），且 cron 守护进程在运行；部分固件 cron 路径不同需调整 `CRON_FILE`。
 - 二进制无法执行：`ls -l /koolshare/bin/cloudflared`，确认权限为 755；`file` 确认是 32 位 ARM（若你的机器实际为 arm64，需换 arm64 二进制）。
-- 空间不足：内置二进制约 37MB，若 JFFS 空间不够，需清理或其他方案。
-- Web 页按钮无反应：不同 ASUSGO 固件的 cgi 接口可能不同（如 `softcenter_cmd.cgi` / `dbus_set.cgi`），按实际固件调整 asp 中的 ajax URL。
+- 空间不足：内置二进制约 37MB，日志已限制轮转（默认 2MB）；若 JFFS 仍不够，需清理或其他方案。
+- Web 页按钮无反应：不同 ASUSGO 固件的 cgi 接口可能不同，asp 已对 `dbus_set.cgi` 做 POST→GET 回退；如仍失败按实际固件调整 ajax URL。
 
 ---
 
-## 八、后续可优化（待你反馈）
+## 八、版本记录
 
-- 适配你固件实际的 cgi 接口与菜单注册字段。
-- 本地管理隧道（config.yml + credentials JSON）。
-- 多隧道管理、断线看门狗、Access 策略对接。
-- 图标与软件中心上架资料。
+- **v1.2.0**：看门狗自愈、进程身份校验、隧道健康检测、日志轮转、时间/网络就绪等待、配置保存后可选立即生效、状态页连通性展示；移除未实现的 local 模式。
+- **v1.1.1**：Token 凭证文件化、XSS/CSRF 加固、凭证脱敏。
+- **v1.1.0**：首发，内置二进制、远程 Token 隧道。
+
+> 说明：多隧道管理、本地管理（config.yml）、Access 策略对接、升级机制属于功能扩展，当前版本未包含。
