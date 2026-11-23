@@ -4,6 +4,8 @@ Cloudflare Tunnel 内网穿透插件，面向 NETGEAR RAX50（Asuswrt-Merlin 386
 
 **完全独立，无需 Entware / opkg**：插件包内置匹配 RAX50（博通 BCM6755，armv7l 32 位）的 `cloudflared` 静态二进制，安装即用。通过 Token 远程管理隧道，将局域网服务安全暴露到公网，无需公网 IP。
 
+**v1.2.0 稳定性升级**：新增断线自愈看门狗（cron 每 2 分钟自检、异常自动重启、重启退避）、隧道健康检测、进程身份校验、日志轮转、开机时间/网络就绪等待；Token 沿用 `--token-file` 凭证文件化，不出现在进程命令行。当前仅支持远程 Token 模式。
+
 ## 仓库结构
 
 源码与本仓库；**可直接安装的插件包在 [Releases](https://github.com/P4x1s/Cloudflare_Tunnels_Merlin/releases) 页面下载**。
@@ -29,15 +31,16 @@ Cloudflare Tunnel 内网穿透插件，面向 NETGEAR RAX50（Asuswrt-Merlin 386
 
 1. 从 [Releases 页面](https://github.com/P4x1s/Cloudflare_Tunnels_Merlin/releases) 下载最新版 `cloudflaretunnel.tar.gz`（约 17.5MB）。
 2. 路由器 Web 管理页 → 软件中心 → 本地安装 → 选择该包。
-3. 安装后在「Cloudflare Tunnel」页面启用插件、粘贴 Zero Trust 的隧道 Token、启动。
-4. Cloudflare 面板将隧道状态显示为 HEALTHY 即成功。
+3. 安装后在「Cloudflare Tunnel」页面启用插件、粘贴 Zero Trust 的隧道 Token、点「保存并应用」。
+4. 页面连通性徽标显示 `HEALTHY`，或 Cloudflare 面板隧道状态显示 HEALTHY 即成功。
+5. 看门狗会自动驻留（cron 每 2 分钟），隧道中断后自动恢复，无需人工干预。
 
 > 确认 JFFS 有足够空间（内置二进制约 37MB，压缩后约 17.5MB）。本插件不写入 /opt，不调用 opkg。
 
 ## 命令行控制
 
 ```sh
-/koolshare/scripts/cloudflaretunnel.sh start|stop|restart|status|log 100|config|version
+/koolshare/scripts/cloudflaretunnel.sh start|stop|restart|status|health|check|log 100|config|version
 ```
 
 详细配置与排错见 [plugin/README.md](plugin/README.md)。
